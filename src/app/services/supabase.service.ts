@@ -1,11 +1,31 @@
 import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
-import { createClient, SupabaseClient, Session } from '@supabase/supabase-js';
+import { createClient, SupabaseClient, Session, SupportedStorage } from '@supabase/supabase-js';
 import { SqliteService } from './sqlite.service';
 import { SyncService } from './sync.service';
 
 import { CotizacionDetalleExtendida} from "../models/database.types";
 import { Network } from '@capacitor/network';
+import { Preferences } from '@capacitor/preferences';
+
+const CapacitorStorage: SupportedStorage = {
+    // Supabase llama a getItem(key)
+    getItem: async (key: string): Promise<string | null> => {
+        const result = await Preferences.get({ key });
+        // Preferences.get devuelve { value: string | null }
+        return result.value;
+    },
+    // Supabase llama a setItem(key, value)
+    setItem: async (key: string, value: string): Promise<void> => {
+        // Preferences.set espera un objeto { key, value }
+        await Preferences.set({ key, value });
+    },
+    // Supabase llama a removeItem(key)
+    removeItem: async (key: string): Promise<void> => {
+        // Preferences.remove espera un objeto { key }
+        await Preferences.remove({ key });
+    },
+};
 
 const supabaseUrl = 'https://ymdcsjmzmagjyudfijtz.supabase.co';
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InltZGNzam16bWFnanl1ZGZpanR6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM2ODQzMjAsImV4cCI6MjA3OTI2MDMyMH0.KzFLfbkzWcVt3HjMoSgXfA6Lemh-UmKLuPFMd8rNXok';
@@ -30,13 +50,13 @@ export class SupabaseService {
     private supabase: SupabaseClient;
     private router = inject(Router);
     public sqliteService = inject(SqliteService);
-    //private syncService = inject(SyncService);
 
     constructor() {
-        //CORRECCIÓN CRÍTICA DE ESTABILIDAD: Evitar conflicto de LockManager en Capacitor
+        // CORRECCIÓN CRÍTICA DE ESTABILIDAD: Evitar conflicto de LockManager en Capacitor
         this.supabase = createClient(supabaseUrl, supabaseKey, {
             auth: {
-                storage: localStorage,
+                // 🔑 USAMOS EL ADAPTADOR EN LUGAR DEL OBJETO PREFERENCES DIRECTO
+                storage: CapacitorStorage,
                 autoRefreshToken: true,
                 persistSession: true,
                 detectSessionInUrl: false,
@@ -611,8 +631,7 @@ export class SupabaseService {
     public async getAllClientesForSync(): Promise<any[]> {
         const { data, error } = await this.supabase
             .from('cliente')
-            .select('*') // Obtenemos todos los campos
-            .is('deleted_at', null)
+            .select('*')
             .order('cli_nombre', { ascending: true });
 
         if (error) {

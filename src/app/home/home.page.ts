@@ -57,7 +57,17 @@ export class HomePage implements OnInit {
     private syncService = inject(SyncService);
     private pedidos = inject(PedidosService);
     private modalCtrl = inject(ModalController);
-    private alertController = inject(AlertController); // 🔑 AGREGADO: Inyectar AlertController
+    private alertController = inject(AlertController);
+
+    public async sincronizarManualmente() {
+        try {
+            console.log("SYNC_MANUAL: Usuario solicitó la sincronización completa.");
+            await this.syncService.fullSync();
+            alert('Sincronización completa. Verifique los datos.');
+        } catch (e) {
+            alert('Fallo la sincronización. Vea Logcat para detalles.');
+        }
+    }
 
     // Estado del calendario
     currentMonth: Date = new Date();
@@ -74,7 +84,7 @@ export class HomePage implements OnInit {
 
         // Llamamos a la sincronización. No necesitamos esperar el resultado aquí,
         // ya que no bloquea la UI y maneja sus propios errores internos.
-        this.syncService.syncAllData();
+        this.syncService.fullSync();
     }
 
     ngOnInit() {

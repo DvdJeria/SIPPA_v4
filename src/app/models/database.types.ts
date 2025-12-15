@@ -49,7 +49,7 @@ export interface Pedido {
     ped_id?: string;
     cot_id: string | null;
     cli_id: string;
-    ped_fecha_creacion?: string;
+    //ped_fecha_creacion?: string;
     ped_fecha_entrega: string;
     est_id: string;
     ped_precio: number;

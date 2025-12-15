@@ -100,7 +100,7 @@ export class LoginPage {
       // La sincronización puede ser lenta, la llamamos sin await para no bloquear la navegación,
       // o con await si la navegación depende de que los datos estén cargados.
       // DADO EL CONTEXTO, ES MEJOR HACER AWAIT para garantizar que los datos estén.
-      await this.syncService.syncAllData();
+        await this.syncService.fullSync();
 
       // 3.3. Navegar a la home si el inicio de sesión Y la sincronización son exitosos.
       this.router.navigate(['/home'], { replaceUrl: true });

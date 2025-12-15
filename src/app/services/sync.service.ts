@@ -25,14 +25,16 @@ export class SyncService {
     private isSyncing = false;
 
     constructor() {
-        // Escuchar cambios de conexión para iniciar la sincronización de Deltas (Sync Up)
         Network.addListener('networkStatusChange', (status) => {
             if (status.connected && !this.isSyncing) {
                 console.log("Conexión restaurada. Iniciando Sync Up de Deltas.");
-                this.syncUp(); // Usamos el método unificado
+                // Al restaurar la conexión, solo subimos los cambios pendientes.
+                this.syncUp();
             }
         });
     }
+
+
 
     /* -------------------------------------------------------------
        SYNC DOWN: DESCARGA TOTAL (BORRADO Y REINSERCIÓN)
@@ -42,8 +44,9 @@ export class SyncService {
      * Realiza la descarga completa (Full Sync Down) de todas las tablas
      * desde Supabase hacia la base de datos local (SQLite).
      */
-    public async syncAllData(): Promise<void> {
-        if (this.isSyncing || !this.sqliteService.isSQLiteActive) {
+    private async syncAllData(internalCall = false): Promise<void> {
+        // Solo verificamos si no es una llamada interna (para evitar doble chequeo)
+        if (!internalCall && (this.isSyncing || !this.sqliteService.isSQLiteActive)) {
             console.warn('SYNC: Ya está sincronizando o SQLite no está activo.');
             return;
         }
@@ -54,7 +57,8 @@ export class SyncService {
             return;
         }
 
-        this.isSyncing = true;
+        // Si no es llamada interna, ponemos la bandera de sincronización.
+        if (!internalCall) this.isSyncing = true;
         console.log('SYNC: Iniciando Full Sync Down desde Supabase...');
 
         try {
@@ -69,22 +73,26 @@ export class SyncService {
             const pedidos = await this.supabaseService.getAllPedidosForSync();
 
             // C. Guardar en SQLite: Vaciado completo y reinserción
+            // ⚠️ CRÍTICO: Este método DEBE usar una transacción SQLite interna.
             await this.sqliteService.saveFullSyncDown(
                 ingredientes,
                 unidades,
                 clientes,
                 cotizaciones,
                 pedidos,
-                estados // Todos los argumentos requeridos están presentes
+                estados
             );
 
             console.log(`SYNC DOWN exitoso. Clientes: ${clientes.length}, Pedidos: ${pedidos.length}, etc. guardados localmente.`);
 
         } catch (error) {
-            console.error('SYNC ERROR en syncAllData:', error);
+            console.error('SYNC ERROR en syncAllData:', error instanceof Error ? error.message : JSON.stringify(error));
+            // Si hay error y no es llamada interna, lanzamos la excepción y limpiamos la bandera.
+            if (!internalCall) this.isSyncing = false;
             throw new Error('Fallo la sincronización de descarga.');
         } finally {
-            this.isSyncing = false;
+            // Solo limpiamos la bandera si NO es una llamada interna
+            if (!internalCall) this.isSyncing = false;
         }
     }
 
@@ -96,64 +104,91 @@ export class SyncService {
      * Procesa la cola de Deltas (registros INSERT/UPDATE/DELETE hechos offline)
      * y los envía a Supabase.
      */
-    public async syncUp(): Promise<void> {
-        if (this.isSyncing || !this.sqliteService.isSQLiteActive) return;
+    private async syncUp(internalCall = false): Promise<void> {
+        // Solo verificamos si no es una llamada interna
+        if (!internalCall && (this.isSyncing || !this.sqliteService.isSQLiteActive)) return;
 
         const isOnline = await this.supabaseService.isOnline();
         if (!isOnline) return;
 
-        this.isSyncing = true;
+        if (!internalCall) this.isSyncing = true;
         console.log('SYNC: Iniciando Sync Up de Deltas locales...');
 
         try {
-            // Asumimos que getSyncDeltas() devuelve el payload ya parseado.
-            // Si devuelve JSON string, el JSON.parse es CRÍTICO aquí.
             const deltas = await this.sqliteService.getSyncDeltas();
-            // ... (Cálculo de totalDeltas sin cambios) ...
+
+            // Función auxiliar para procesar Deltas por categoría
+            const processDeltas = async (deltaArray: any[], handler: (action: string, payload: any) => Promise<any>, tableName: string) => {
+                for (const delta of deltaArray) {
+                    try {
+                        // CRÍTICO: Asegurar que el payload sea un objeto
+                        const payloadObj = typeof delta.payload === 'string' ? JSON.parse(delta.payload) : delta.payload;
+
+                        await handler(delta.action, payloadObj);
+                        await this.sqliteService.deleteSyncDelta(delta.delta_id, tableName);
+                    } catch (error) {
+                        // Si hay un error, dejamos el Delta para reintentar más tarde.
+                        console.error(`Error al subir Delta ID ${delta.delta_id} de ${tableName}. Se reintentará.`, error);
+                    }
+                }
+            };
 
             // 1. Subir Clientes
-            for (const delta of deltas.clientes) {
-                try {
-                    // 🔑 MEJORA: Aseguramos que el payload sea un objeto si viene como string
-                    const payloadObj = typeof delta.payload === 'string' ? JSON.parse(delta.payload) : delta.payload;
-
-                    await this.supabaseService.handleClientDelta(delta.action, payloadObj);
-                    await this.sqliteService.deleteSyncDelta(delta.delta_id, 'delta_clientes');
-                } catch (error) {
-                    console.error(`Error al subir cliente Delta ID ${delta.delta_id}. Se reintentará.`, error);
-                }
-            }
+            await processDeltas(
+                deltas.clientes,
+                (action, payload) => this.supabaseService.handleClientDelta(action, payload),
+                'delta_clientes'
+            );
 
             // 2. Subir Cotizaciones
-            for (const delta of deltas.cotizaciones) {
-                try {
-                    // 🔑 MEJORA: Aseguramos que el payload sea un objeto
-                    const payloadObj = typeof delta.payload === 'string' ? JSON.parse(delta.payload) : delta.payload;
-
-                    await this.supabaseService.handleCotizacionDelta(delta.action, payloadObj);
-                    await this.sqliteService.deleteSyncDelta(delta.delta_id, 'delta_cotizaciones');
-                } catch (error) {
-                    console.error(`Error al subir cotización Delta ID ${delta.delta_id}. Se reintentará.`, error);
-                }
-            }
+            await processDeltas(
+                deltas.cotizaciones,
+                (action, payload) => this.supabaseService.handleCotizacionDelta(action, payload),
+                'delta_cotizaciones'
+            );
 
             // 3. Subir Pedidos
-            for (const delta of deltas.pedidos) {
-                try {
-                    // 🔑 MEJORA: Aseguramos que el payload sea un objeto
-                    const payloadObj = typeof delta.payload === 'string' ? JSON.parse(delta.payload) : delta.payload;
-
-                    await this.supabaseService.handlePedidoDelta(delta.action, payloadObj);
-                    await this.sqliteService.deleteSyncDelta(delta.delta_id, 'delta_pedidos');
-                } catch (error) {
-                    console.error(`Error al subir pedido Delta ID ${delta.delta_id}. Se reintentará.`, error);
-                }
-            }
+            await processDeltas(
+                deltas.pedidos,
+                (action, payload) => this.supabaseService.handlePedidoDelta(action, payload),
+                'delta_pedidos'
+            );
 
             console.log('SYNC UP completado y deltas locales procesados.');
         } catch (error) {
             console.error('SYNC ERROR en syncUp:', error);
             throw new Error('Fallo la sincronización de subida.');
+        } finally {
+            if (!internalCall) this.isSyncing = false;
+        }
+    }
+
+    public async fullSync(): Promise<void> {
+        if (this.isSyncing || !this.sqliteService.isSQLiteActive) {
+            console.warn('SYNC: Ya está sincronizando o SQLite no está activo.');
+            return;
+        }
+
+        const isOnline = await this.supabaseService.isOnline();
+        if (!isOnline) {
+            console.log("Offline. No se puede iniciar la sincronización completa.");
+            return;
+        }
+
+        this.isSyncing = true;
+        console.log('SYNC: Iniciando Full Sync (Up + Down)...');
+
+        try {
+            // A. ⬆️ Paso 1: Subir Deltas locales (Sync Up)
+            await this.syncUp(true);
+
+            // B. ⬇️ Paso 2: Descargar todo (Full Sync Down)
+            await this.syncAllData(true);
+
+            console.log('SYNC: Sincronización Completa exitosa.');
+
+        } catch (error) {
+            console.error('SYNC: Falló la Sincronización Completa.', error);
         } finally {
             this.isSyncing = false;
         }

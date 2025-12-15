@@ -2,7 +2,7 @@ import { Component, inject } from '@angular/core';
 import { Router, RouterModule } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { Platform } from '@ionic/angular';
-
+import { SyncService } from './services/sync.service';
 
 import {
   IonApp,
@@ -52,6 +52,7 @@ export class AppComponent {
   private supabaseService = inject(SupabaseService);
   private router = inject(Router);
   private platform = inject(Platform);
+    private syncService = inject(SyncService);
 
   public appPages = [
     { title: 'Materia Prima', url: '/pages/ingredientes', icon: 'archive' },
@@ -59,22 +60,34 @@ export class AppComponent {
     { title: 'Generar Cotización', url: '/cotizacion', icon: 'create' }
   ];
 
-  constructor() {
-    addIcons({ archiveOutline, calendarOutline, logOutOutline, createOutline });
+    constructor() {
+        addIcons({ archiveOutline, calendarOutline, logOutOutline, createOutline });
 
-    this.platform.ready().then(async () => {
-      try {
-        console.log('APP_INIT: Plataforma lista. Inicializando SQLite...');
-        await this.supabaseService.sqliteService.initializeDatabase();
-      } catch (e) {
-        console.error(
-            'APP_INIT: No se pudo inicializar SQLite. Modo online activo.',
-            e
-        );
-      }
-    });
+        this.platform.ready().then(async () => {
+            try {
+                console.log('APP_INIT: Plataforma lista. Inicializando SQLite...');
 
-  }
+                // 1. Inicializa la base de datos local
+                await this.supabaseService.sqliteService.initializeDatabase();
+
+                console.log('APP_INIT: SQLite inicializado con éxito. Iniciando sincronización de datos...');
+
+                // 2. 🚀 Lanza la sincronización inicial (Up + Down)
+                // Esto subirá deltas pendientes y descargará todos los datos de Supabase.
+                await this.syncService.fullSync();
+
+                console.log('APP_INIT: Sincronización inicial completa.');
+
+            } catch (e) {
+                console.error(
+                    // El error puede ser de SQLite o del SyncService (ej. sin conexión o fallo de BD).
+                    'APP_INIT: Error grave durante la inicialización/sincronización.',
+                    e
+                );
+            }
+        });
+
+    }
 
   public async logout() {
     try {
