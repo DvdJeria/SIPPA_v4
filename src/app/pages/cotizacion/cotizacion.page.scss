@@ -1,0 +1,56 @@
+
+ion-content {
+  --background: var(--color-fondo, #F0F9F8);
+}
+
+// Estilos para el toolbar
+ion-toolbar {
+  --background: #F3A2BE !important;
+  --color: #fff !important;
+}
+
+ion-title {
+  color: #fff !important;
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 1.2rem;
+}
+
+ion-menu-button {
+  --color: #fff !important;
+  color: #fff !important;
+}
+
+ion-button[slot="end"] {
+  --color: #fff !important;
+  color: #fff !important;
+}
+
+.cotizacion-card {
+  background: var(--color-tarjeta, #FFD3DD);
+  border-radius: 16px;
+  box-shadow: 0 2px 8px #F3A2BE22;
+  padding: 16px;
+}
+
+ion-button:not([fill="clear"]) {
+  --background: var(--color-principal, #F3A2BE);
+  --color: #fff;
+}
+
+// Botón "Agregar" con fill="clear" - forzar visibilidad del texto !NOMOVER
+ion-button[fill="clear"] {
+  --color: var(--color-principal, #F3A2BE) !important;
+  color: var(--color-principal, #F3A2BE) !important;
+  font-weight: bold !important;
+
+  ion-icon {
+    color: var(--color-principal, #F3A2BE) !important;
+  }
+}
+
+.table-scroll-container {
+  overflow-x: auto; /* Permite el scroll horizontal si el contenido es muy ancho */
+  width: 100%;     /* Asegura que ocupe todo el ancho disponible */
+  padding-bottom: 10px; /* Opcional: añade espacio debajo del scroll */
+}
